@@ -7,40 +7,49 @@ This repository captures the automation, documentation, manifests, and release m
 ## Repository layout
 
 ```text
-build/                 # Scripts or Packer templates that assemble the image
+build/                 # Scripts or templates that assemble the image
 manifests/tools.json   # Manifest snippet consumed by Toolsmith
 scripts/               # Utility helpers for CI/CD and local development
 docs/                  # Operational guides, validation instructions, and release notes
 releases/              # Metadata about published artifacts (checksums, URLs)
+dist/                  # Local-only staging area for build outputs
 ```
 
 Feel free to extend this structure as FountainKit evolves. Keep large binary outputs out of version control; instead, upload them to the Releases section for each tag so the published asset matches the automation at that revision.
 
+## Base image and provisioning profile
+
+The inaugural Toolsmith image produced from this repository targets **Ubuntu Server 22.04 LTS (Jammy Jellyfish)** because it matches the minimal LTS footprint currently recommended for FountainKit sandboxes. The build automation layers the following opinionated configuration onto the upstream cloud image:
+
+- Default user: `fountain`, with passwordless sudo access intended for Toolsmith orchestration.
+- SSH access: the build injects the public key listed in `build/authorized_keys` (or an override provided at runtime) and disables password authentication.
+- Hardened defaults: root login is locked, SSH host keys are regenerated on first boot, and unnecessary caches are cleaned before shipping the image.
+- Tooling: installs a small baseline of packages FountainKit relies on (`curl`, `git`, `python3`, `python3-pip`, `qemu-guest-agent`, and `sudo`).
+- Disk layout: resizes the upstream image to a 20 GiB virtual disk to leave headroom for FountainKit workloads.
+
 ## Getting started
 
 1. **Install prerequisites**
-   - QEMU (for `qemu-img` and local boot testing)
-   - Your chosen provisioning toolchain (Packer, Ansible, Nix, etc.)
-   - `shasum` or `sha256sum` for checksum generation
+   - `curl`, `qemu-img`, `virt-customize`, `virt-sysprep`, and `sha256sum` (usually from the `qemu-utils` and `libguestfs-tools` packages)
+   - `cloud-localds` if you plan to generate alternative cloud-init data sources for validation
 2. **Configure build variables**
-   - Update `build/variables.example` (or equivalent) with FountainKit-specific settings (base image URL, default user, tool versions).
+   - Update `build/authorized_keys` with the SSH public keys Toolsmith should trust inside the guest. You can also override the path at runtime using `AUTHORIZED_KEYS`.
+   - Export environment variables before building to adjust defaults, such as `IMAGE_VERSION`, `BASE_IMAGE_URL`, or `BASE_IMAGE_SHA256`.
 3. **Build the image**
-   - Run the automation in `build/` (e.g. `make build` or `packer build build/template.json`).
-   - The output should be a compressed or raw QCOW2 file stored in your local `dist/` folder.
+   - Run `./build/build-image.sh`. The script downloads the upstream Ubuntu cloud image, applies the provisioning steps listed above, and emits a QCOW2 in `dist/`.
 4. **Validate**
-   - Boot the image with QEMU (`make validate` or `scripts/validate.sh`).
-   - Execute FountainKit integration smoke tests inside the guest to ensure parity with the sandbox environment.
+   - Follow the smoke test plan in `docs/validation.md` or run `./scripts/validate.sh dist/<image>.qcow2` to boot the VM with QEMU and execute the documented checks.
 5. **Publish**
    - Tag the commit that produced the image (e.g. `git tag vYYYY.MM.DD && git push origin vYYYY.MM.DD`).
-   - Create a GitHub Release for that tag and upload the QCOW2 (optionally compressed) alongside checksum files (`.sha256`).
-   - Record the release asset URL, SHA-256 digest, and manifest snippet in `releases/<version>.md` (or `.json`) for traceability.
+   - Create a GitHub Release for that tag and upload the QCOW2 alongside a checksum file produced by the build script.
+   - Record the release asset URL, SHA-256 digest, and manifest snippet in `releases/<version>.md` for traceability.
 6. **Rollout**
-   - Update FountainKit's `.toolsmith/tools.json` to reference the new URL and checksum.
+   - Update FountainKit's `.toolsmith/tools.json` (mirrored in this repository under `manifests/tools.json`) to reference the new URL and checksum.
    - Communicate the change and instruct consumers to clear old caches if necessary.
 
 ## Release cadence and asset management
 
-- Use semantic version tags of the form `vYYYY.MM.DD` (or similar) to align with Toolsmith manifests and release assets.
+- Use semantic version tags of the form `vYYYY.MM.DD` to align with Toolsmith manifests and release assets.
 - Attach every QCOW2 binary to the matching GitHub Release so consumers can fetch the artifact directly from this repo.
 - Keep a changelog in `docs/releases.md` summarizing base image upgrades, added packages, configuration changes, and links to the corresponding release assets.
 - Automate CI to rebuild and validate the image whenever automation or provisioning scripts change, and to upload the new QCOW2 and checksum files as release assets when tags are pushed.
@@ -56,4 +65,3 @@ Feel free to extend this structure as FountainKit evolves. Keep large binary out
 Pull requests should include updated automation, manifests, and documentation whenever an image change is proposed. Provide links to validation logs and the artifact download URL in the PR description to streamline reviews.
 
 For questions or operational incidents, open an issue in this repository or reach out to the FountainKit infrastructure team.
-

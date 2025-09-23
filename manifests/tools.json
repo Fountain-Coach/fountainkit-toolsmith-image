@@ -1,0 +1,18 @@
+{
+  "toolsmith": {
+    "images": [
+      {
+        "name": "fountainkit-toolsmith",
+        "version": "v0.0.0",
+        "description": "Placeholder entry describing the inaugural Toolsmith QCOW2 release. Update once the first image is published.",
+        "qcow2": "https://github.com/fountainkit/fountainkit-toolsmith-image/releases/download/v0.0.0/fountainkit-toolsmith-ubuntu-2204-v0.0.0.qcow2",
+        "qcow2_sha256": "",
+        "notes": [
+          "Base distribution: Ubuntu Server 22.04 LTS cloud image",
+          "Default user: fountain (passwordless sudo)",
+          "Provisioned via build/build-image.sh"
+        ]
+      }
+    ]
+  }
+}

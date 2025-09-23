@@ -1,40 +1,11 @@
 # Build artifacts
 /dist/
-/build/output/
 /tmp/
-/cache/
-
-# Virtual disk images
 *.qcow2
-*.qcow2.*
 *.img
 *.iso
-*.vmdk
-*.vdi
+*.sha256
 
-# Compression archives
-*.gz
-*.xz
-*.zip
-*.tar
-*.tar.gz
-*.tgz
-
-# Logs and reports
-*.log
-*.log.*
-*.out
-*.err
-reports/
-
-# Environment and tooling
-.env
-.env.*
+# Editor settings
 *.swp
-*.swo
 .DS_Store
-Thumbs.db
-.idea/
-.vscode/
-.macosx
-

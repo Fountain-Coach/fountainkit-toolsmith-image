@@ -1,0 +1,3 @@
+# Replace this placeholder with the SSH public keys that should be baked into the Toolsmith image.
+# Example:
+# ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICexampleplaceholder FountainKit Toolsmith

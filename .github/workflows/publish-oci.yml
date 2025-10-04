@@ -1,0 +1,107 @@
+name: Publish Toolsmith Image (OCI GHCR)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies (qemu, guestfs, jq, oras)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y qemu-utils libguestfs-tools jq curl
+          ORAS_VERSION=1.2.0
+          curl -sL "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_$(uname -s)_$(uname -m | sed 's/x86_64/amd64/')-v${ORAS_VERSION}.tar.gz" | tar -xz
+          sudo mv oras /usr/local/bin/oras
+          oras version
+
+      - name: Generate ephemeral SSH key for build
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p .tmp
+          ssh-keygen -t ed25519 -N '' -f .tmp/ci_key
+          cp .tmp/ci_key.pub build/authorized_keys
+          ls -l build/authorized_keys
+
+      - name: Build QCOW2 image
+        env:
+          IMAGE_VERSION: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          chmod +x build/build-image.sh
+          ./build/build-image.sh
+          ls -l dist
+
+      - name: Compute digest and prepare metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          qcow2=$(ls -1 dist/*.qcow2 | head -n1)
+          sha=$(sha256sum "$qcow2" | awk '{print $1}')
+          ref="ghcr.io/fountain-coach/fountainkit-toolsmith-image:${{ github.ref_name }}"
+          echo "qcow2=$qcow2" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "QCOW2=$qcow2"; echo "SHA256=$sha"; echo "REF=$ref"
+
+      - name: Login to GHCR
+        shell: bash
+        run: |
+          set -euxo pipefail
+          echo "${{ github.token }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Push OCI artifact to GHCR
+        shell: bash
+        run: |
+          set -euxo pipefail
+          oras push "${{ steps.meta.outputs.ref }}" \
+            "${{ steps.meta.outputs.qcow2 }}:application/vnd.fountain.toolsmith.qcow2" \
+            --annotation "org.opencontainers.image.title=$(basename \"${{ steps.meta.outputs.qcow2 }}\")" \
+            --artifact-type "application/vnd.fountain.toolsmith.qcow2"
+
+      - name: Emit Toolsmith manifest snippet
+        shell: bash
+        run: |
+          cat > manifest-snippet.json <<EOF
+          {
+            "image": {
+              "name": "fountainkit-toolsmith",
+              "tarball": "",
+              "sha256": "",
+              "qcow2": "oci://${{ steps.meta.outputs.ref }}",
+              "qcow2_sha256": "${{ steps.meta.outputs.sha }}"
+            },
+            "tools": {},
+            "operations": []
+          }
+          EOF
+          cat manifest-snippet.json
+
+      - name: Upload manifest snippet artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: toolsmith-manifest-snippet
+          path: manifest-snippet.json
+
+      - name: Workflow summary
+        shell: bash
+        run: |
+          echo "OCI Ref: oci://${{ steps.meta.outputs.ref }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "SHA-256: ${{ steps.meta.outputs.sha }}" >> "$GITHUB_STEP_SUMMARY"
+

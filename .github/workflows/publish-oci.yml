@@ -155,3 +155,44 @@ jobs:
             exit 1
           fi
           echo "Verified QCOW2 digest matches." >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    needs: [verify-oci, build-and-push]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download manifest snippet artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: toolsmith-manifest-snippet
+          path: .
+
+      - name: Prepare release body
+        id: body
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="${{ needs.build-and-push.outputs.ref }}"
+          sha="${{ needs.build-and-push.outputs.sha }}"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "OCI Ref: oci://$ref" > release_body.txt
+          echo "SHA-256: $sha" >> release_body.txt
+          echo >> release_body.txt
+          echo 'Manifest snippet:' >> release_body.txt
+          echo '```json' >> release_body.txt
+          cat manifest-snippet.json >> release_body.txt
+          echo '```' >> release_body.txt
+
+      - name: Create/Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: release_body.txt
+          files: |
+            manifest-snippet.json

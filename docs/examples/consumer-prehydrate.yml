@@ -1,0 +1,84 @@
+# Example consumer CI workflow to pre-hydrate Toolsmith VM image from GHCR
+# Copy into your consumer repo under .github/workflows/consumer-prehydrate.yml and adjust as needed.
+
+name: Consumer Pre-Hydrate Toolsmith VM
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  prehydrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout consumer repository
+        uses: actions/checkout@v4
+
+      - name: Install deps (jq, oras)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y jq curl
+          ORAS_VERSION=1.2.0
+          curl -sL "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_$(uname -s)_$(uname -m | sed 's/x86_64/amd64/')-v${ORAS_VERSION}.tar.gz" | tar -xz
+          sudo mv oras /usr/local/bin/oras
+          oras version
+
+      - name: Read Toolsmith manifest
+        id: manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest_path=".toolsmith/tools.json"
+          name=$(jq -r '.image.name' "$manifest_path")
+          qcow2=$(jq -r '.image.qcow2' "$manifest_path")
+          digest=$(jq -r '.image.qcow2_sha256' "$manifest_path")
+          filename=$(basename $(jq -r '.image.qcow2' "$manifest_path" | sed 's#^oci://##'))
+          # If qcow2 is oci://..., derive expected filename from title or set a default
+          # Consumers may hardcode a known filename in their manifest for simplicity.
+          echo "name=$name" >> $GITHUB_OUTPUT
+          echo "ref=$qcow2" >> $GITHUB_OUTPUT
+          echo "digest=$digest" >> $GITHUB_OUTPUT
+
+      - name: Login to GHCR (read)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          echo "${{ github.token }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Pull OCI artifact
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p pull && cd pull
+          oras pull "${{ steps.manifest.outputs.ref }}"
+
+      - name: Stage into Toolsmith cache
+        shell: bash
+        run: |
+          set -euxo pipefail
+          # Find pulled qcow2 and stage into .toolsmith/cache/<image>/<digest>/<expected-name>
+          pulled=$(find pull -type f -name '*.qcow2' | head -n1)
+          if [[ -z "$pulled" ]]; then echo "No .qcow2 pulled" >&2; exit 1; fi
+          mkdir -p \
+            .toolsmith/cache/"${{ steps.manifest.outputs.name }}"/"${{ steps.manifest.outputs.digest }}"
+          dest=".toolsmith/cache/${{ steps.manifest.outputs.name }}/${{ steps.manifest.outputs.digest }}/$(basename "$pulled")"
+          mv "$pulled" "$dest"
+          echo "Staged: $dest"
+          sha=$(sha256sum "$dest" | awk '{print $1}')
+          if [[ "$sha" != "${{ steps.manifest.outputs.digest }}" ]]; then
+            echo "Checksum mismatch after staging" >&2
+            exit 1
+          fi
+          echo "Pre-hydration complete."
+
+      - name: Export env for subsequent jobs
+        shell: bash
+        run: |
+          echo "TOOLSMITH_EXECUTION=vm" >> $GITHUB_ENV
+          echo "TOOLSMITH_ORAS=/usr/local/bin/oras" >> $GITHUB_ENV
+

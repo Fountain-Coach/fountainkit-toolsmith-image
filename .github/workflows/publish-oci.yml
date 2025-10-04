@@ -13,6 +13,9 @@ permissions:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.meta.outputs.ref }}
+      sha: ${{ steps.meta.outputs.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -105,3 +108,50 @@ jobs:
           echo "OCI Ref: oci://${{ steps.meta.outputs.ref }}" >> "$GITHUB_STEP_SUMMARY"
           echo "SHA-256: ${{ steps.meta.outputs.sha }}" >> "$GITHUB_STEP_SUMMARY"
 
+  verify-oci:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install oras
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl
+          ORAS_VERSION=1.2.0
+          curl -sL "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_$(uname -s)_$(uname -m | sed 's/x86_64/amd64/')-v${ORAS_VERSION}.tar.gz" | tar -xz
+          sudo mv oras /usr/local/bin/oras
+          oras version
+
+      - name: Login to GHCR (read)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          echo "${{ github.token }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Pull OCI artifact and verify checksum
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p pull && cd pull
+          oras pull "${{ needs.build-and-push.outputs.ref }}"
+          qcow2=$(find . -type f -name '*.qcow2' | head -n1)
+          if [[ -z "$qcow2" ]]; then
+            echo "No .qcow2 found in pulled artifact" >&2
+            exit 1
+          fi
+          actual=$(sha256sum "$qcow2" | awk '{print $1}')
+          expected="${{ needs.build-and-push.outputs.sha }}"
+          echo "Expected: $expected"
+          echo "Actual:   $actual"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Checksum mismatch" >&2
+            exit 1
+          fi
+          echo "Verified QCOW2 digest matches." >> "$GITHUB_STEP_SUMMARY"

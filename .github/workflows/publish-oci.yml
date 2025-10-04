@@ -20,16 +20,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install dependencies (qemu, guestfs, jq, oras)
+      - name: Install dependencies (qemu, guestfs, jq)
         shell: bash
         run: |
           set -euxo pipefail
           sudo apt-get update
           sudo apt-get install -y qemu-utils libguestfs-tools jq curl
-          ORAS_VERSION=1.2.0
-          curl -sL "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_$(uname -s)_$(uname -m | sed 's/x86_64/amd64/')-v${ORAS_VERSION}.tar.gz" | tar -xz
-          sudo mv oras /usr/local/bin/oras
-          oras version
+
+      - name: Setup ORAS
+        uses: oras-project/setup-oras@v1
+        with:
+          version: v1.2.0
 
       - name: Generate ephemeral SSH key for build
         shell: bash
@@ -118,16 +119,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install oras
-        shell: bash
-        run: |
-          set -euxo pipefail
-          sudo apt-get update
-          sudo apt-get install -y curl
-          ORAS_VERSION=1.2.0
-          curl -sL "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_$(uname -s)_$(uname -m | sed 's/x86_64/amd64/')-v${ORAS_VERSION}.tar.gz" | tar -xz
-          sudo mv oras /usr/local/bin/oras
-          oras version
+      - name: Setup ORAS
+        uses: oras-project/setup-oras@v1
+        with:
+          version: v1.2.0
 
       - name: Login to GHCR (read)
         shell: bash

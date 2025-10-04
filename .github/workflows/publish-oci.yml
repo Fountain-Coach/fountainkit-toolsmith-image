@@ -30,7 +30,7 @@ jobs:
       - name: Setup ORAS
         uses: oras-project/setup-oras@v1
         with:
-          version: v1.1.1
+          version: v1.1.0
 
       - name: Generate ephemeral SSH key for build
         shell: bash
@@ -122,7 +122,7 @@ jobs:
       - name: Setup ORAS
         uses: oras-project/setup-oras@v1
         with:
-          version: v1.1.1
+          version: v1.1.0
 
       - name: Login to GHCR (read)
         shell: bash
